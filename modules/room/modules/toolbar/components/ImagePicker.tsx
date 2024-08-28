@@ -1,9 +1,6 @@
 import { useEffect } from 'react';
-
 import { BsFillImageFill } from 'react-icons/bs';
-
 import { optimizeImage } from '@/common/lib/optimizeImage';
-
 import { useMoveImage } from '../../../hooks/useMoveImage';
 
 const ImagePicker = () => {
@@ -46,8 +43,11 @@ const ImagePicker = () => {
   };
 
   return (
-    <button className="btn-icon text-xl" onClick={handleImageInput}>
-      <BsFillImageFill />
+    <button
+      className="btn-icon bg-purple-600 hover:bg-purple-700 text-white rounded-full p-2 transition duration-200"
+      onClick={handleImageInput}
+    >
+      <BsFillImageFill className="w-5 h-5" />
     </button>
   );
 };

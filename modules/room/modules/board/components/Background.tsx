@@ -1,10 +1,7 @@
 import { RefObject, useEffect } from 'react';
-
 import { motion } from 'framer-motion';
-
 import { CANVAS_SIZE } from '@/common/constants/canvasSize';
 import { useBackground } from '@/common/recoil/background';
-
 import { useBoardPosition } from '../hooks/useBoardPosition';
 
 const Background = ({ bgRef }: { bgRef: RefObject<HTMLCanvasElement> }) => {
@@ -15,27 +12,24 @@ const Background = ({ bgRef }: { bgRef: RefObject<HTMLCanvasElement> }) => {
     const ctx = bgRef.current?.getContext('2d');
 
     if (ctx) {
-      ctx.fillStyle = bg.mode === 'dark' ? '#222' : '#fff';
+      // Add purple hue to background
+      ctx.fillStyle = bg.mode === 'dark' ? '#2b1f36' : '#f8f0ff';
       ctx.fillRect(0, 0, CANVAS_SIZE.width, CANVAS_SIZE.height);
 
       document.body.style.backgroundColor =
-        bg.mode === 'dark' ? '#222' : '#fff';
+        bg.mode === 'dark' ? '#2b1f36' : '#f8f0ff';
 
       if (bg.lines) {
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = bg.mode === 'dark' ? '#444' : '#ddd';
-        for (let i = 0; i < CANVAS_SIZE.height; i += 25) {
-          ctx.beginPath();
-          ctx.moveTo(0, i);
-          ctx.lineTo(ctx.canvas.width, i);
-          ctx.stroke();
-        }
+        ctx.fillStyle = bg.mode === 'dark' ? '#443a4e' : '#e6d9f2';
+        const dotSize = 2;
+        const spacing = 25;
 
-        for (let i = 0; i < CANVAS_SIZE.width; i += 25) {
-          ctx.beginPath();
-          ctx.moveTo(i, 0);
-          ctx.lineTo(i, ctx.canvas.height);
-          ctx.stroke();
+        for (let x = 0; x < CANVAS_SIZE.width; x += spacing) {
+          for (let y = 0; y < CANVAS_SIZE.height; y += spacing) {
+            ctx.beginPath();
+            ctx.arc(x, y, dotSize / 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
       }
     }
