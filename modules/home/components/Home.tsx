@@ -70,7 +70,7 @@ const Home = () => {
               width={40}
               height={40}
             />
-            <h1 className="ml-2 text-xl font-semibold text-white">
+            <h1 className="ml-2 text-xl font-semibold" style={{ color: '#6a4c74' }}>
               SketchSync
             </h1>
           </div>
@@ -83,7 +83,7 @@ const Home = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
       >
-        <h1 className="text-4xl font-extrabold leading-tight text-white">
+        <h1 className="text-6xl font-extrabold leading-tight" style={{ color: '#6a4c74' }}>
           SketchSync
         </h1>
         <h3 className="text-lg sm:text-xl text-white">
@@ -91,12 +91,12 @@ const Home = () => {
         </h3>
 
         <div className="mt-10 flex flex-col gap-2 w-80">
-          <label className="self-start text-white font-medium leading-tight">
+          <label className="self-start font-medium leading-tight" style={{ color: '#8a6c94' }}>
             Enter Your Name:
           </label>
           <input
-            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none"
-            id="room-id"
+            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none w-full"
+            id="username"
             placeholder="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value.slice(0, 15))}
@@ -111,12 +111,13 @@ const Home = () => {
         >
           <label
             htmlFor="room-id"
-            className="self-start text-white font-medium leading-tight"
+            className="self-start font-medium leading-tight"
+            style={{ color: '#8a6c94' }}
           >
             Enter Room ID:
           </label>
           <input
-            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none"
+            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none w-full"
             id="room-id"
             placeholder="example: xv28"
             value={roomId}
@@ -137,7 +138,7 @@ const Home = () => {
         </div>
 
         <div className="flex flex-col items-center gap-2 w-80">
-          <h5 className="self-start text-white font-medium leading-tight">
+          <h5 className="self-start font-medium leading-tight" style={{ color: '#8a6c94' }}>
             Create New Room
           </h5>
 
