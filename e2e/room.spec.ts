@@ -98,7 +98,8 @@ test('two users draw, undo and chat together', async ({ browser }) => {
 });
 
 test('delete erases exactly the selected area', async ({ page }) => {
-  await addLatency(page, 300);
+  // Long enough that the strokes are still unconfirmed when the selection starts.
+  await addLatency(page, 800);
   await createRoom(page, 'Alice');
   await drawLine(page, [550, 400], [850, 400]);
   await drawLine(page, [600, 430], [800, 430]);

@@ -102,21 +102,26 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
     return new Map(entries);
   }, []);
 
-  // Adds a drawing job. The job loads the images first, so that the canvas
-  // is never blank while images load. If the user starts a stroke while the
-  // images load, the job does not draw: a change to the canvas would damage
-  // the stroke preview. The board draws everything again after the stroke.
+  // Adds a drawing job. The job gets its moves when it runs and loads their
+  // images first, so that the canvas is never blank while images load. If
+  // the user starts a stroke while the images load, the job does not draw: a
+  // change to the canvas would damage the stroke preview. The board draws
+  // everything again after the stroke.
   const enqueue = useCallback(
-    (moves: Move[], draw: (context: CanvasRenderingContext2D, images: ImageMap) => void) => {
+    (
+      getMoves: () => Move[],
+      draw: (context: CanvasRenderingContext2D, moves: Move[], images: ImageMap) => void,
+    ) => {
       drawQueue.current = drawQueue.current.then(async () => {
         if (!ctx) return;
+        const moves = getMoves();
         const images = await loadImages(moves);
         if (drawingRef.current) {
           fullRedrawNeeded.current = true;
           return;
         }
         try {
-          draw(ctx, images);
+          draw(ctx, moves, images);
         } catch (err) {
           console.error('Could not draw the board:', err);
         }
@@ -126,30 +131,36 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
   );
 
   const redrawAll = useCallback(
-    (moves: Move[], currentSelection: Rect | null) => {
-      // Forget the images of moves that are not on the board any more.
-      const ids = new Set(moves.map((move) => move.id));
-      imageCache.current.forEach((_image, id) => {
-        if (!ids.has(id)) imageCache.current.delete(id);
-      });
+    (moves: Move[], currentSelection: Rect | null) =>
+      enqueue(
+        // Own moves that wait for the server go on top.
+        () => [...moves, ...pendingRef.current.moves],
+        (context, allMoves, images) => {
+          // Forget the images of moves that are not on the board any more.
+          const ids = new Set(allMoves.map((move) => move.id));
+          imageCache.current.forEach((_image, id) => {
+            if (!ids.has(id)) imageCache.current.delete(id);
+          });
 
-      enqueue(moves, (context, images) => {
-        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
-        drawMoves(context, moves, images);
-        copyCanvasToSmall();
-        // Draw the outline after the minimap copy, so the minimap does not show it.
-        if (currentSelection) drawSelectionOutline(context, currentSelection);
-      });
-    },
-    [copyCanvasToSmall, enqueue],
+          context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+          drawMoves(context, allMoves, images);
+          copyCanvasToSmall();
+          // Draw the outline after the minimap copy, so the minimap does not show it.
+          if (currentSelection) drawSelectionOutline(context, currentSelection);
+        },
+      ),
+    [copyCanvasToSmall, enqueue, pendingRef],
   );
 
   const drawNewMoves = useCallback(
     (moves: Move[]) =>
-      enqueue(moves, (context, images) => {
-        drawMoves(context, moves, images);
-        copyCanvasToSmall();
-      }),
+      enqueue(
+        () => moves,
+        (context, newMoves, images) => {
+          drawMoves(context, newMoves, images);
+          copyCanvasToSmall();
+        },
+      ),
     [copyCanvasToSmall, enqueue],
   );
 
@@ -192,12 +203,12 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
     socket.emit('undo');
   }, [addSavedMove, handleRemoveMyMove]);
 
-  // The server confirmed or rejected one own move. When no own move is
-  // pending, run the undos that waited.
+  // The server confirmed or rejected the oldest pending own move. When no
+  // own move is pending, run the undos that waited.
   const settleMove = useCallback(() => {
     const pending = pendingRef.current;
-    pending.moves = Math.max(0, pending.moves - 1);
-    if (pending.moves) return;
+    pending.moves.shift();
+    if (pending.moves.length) return;
 
     while (pending.undos > 0) {
       pending.undos -= 1;
@@ -217,9 +228,9 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
 
   const handleMoveRejected = useCallback(
     (reason: string) => {
-      // Remove the preview of the stroke that the server did not accept.
-      redraw();
+      // Remove the move that the server did not accept, then draw without it.
       settleMove();
+      redraw();
       toast.error(reason, { ...TOAST_OPTIONS, toastId: reason });
     },
     [redraw, settleMove],
@@ -235,7 +246,7 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
 
     // The server undoes its last received move. If an own move is still on
     // its way, the undo waits for it.
-    if (pendingRef.current.moves) pendingRef.current.undos += 1;
+    if (pendingRef.current.moves.length) pendingRef.current.undos += 1;
     else undoNow();
   }, [clearSelection, pendingRef, selection, undoNow]);
 

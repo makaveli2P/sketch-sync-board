@@ -29,10 +29,12 @@ export interface MoveImageState {
   eraseArea?: Rect;
 }
 
-// Own moves that the server did not confirm yet, and undos that wait for
-// them. An undo must wait, because the server undoes its last received move.
+// Own moves that the server did not confirm yet, in the order they were
+// sent, and undos that wait for them. The board draws pending moves, so a
+// redraw before the confirmation does not hide them. An undo must wait,
+// because the server undoes its last received move.
 export interface PendingState {
-  moves: number;
+  moves: Move[];
   undos: number;
 }
 
@@ -87,11 +89,15 @@ const RoomContextProvider = ({ children }: { children: ReactNode }) => {
 
   const [ctx, setCtx] = useState<CanvasRenderingContext2D | null>(null);
   const [moveImage, setMoveImage] = useState<MoveImageState>({ base64: '' });
-  const pendingRef = useRef<PendingState>({ moves: 0, undos: 0 });
+  const pendingRef = useRef<PendingState>({ moves: [], undos: 0 });
+  const nextLocalId = useRef(1);
 
   const emitMove = useCallback((move: Move) => {
-    pendingRef.current.moves += 1;
-    socket.emit('draw', move);
+    // A local id for the image cache. The server gives the move its real id.
+    const pendingMove = { ...move, id: `local-${nextLocalId.current}` };
+    nextLocalId.current += 1;
+    pendingRef.current.moves.push(pendingMove);
+    socket.emit('draw', pendingMove);
   }, []);
 
   const x = useMotionValue(0);
@@ -146,7 +152,7 @@ const RoomContextProvider = ({ children }: { children: ReactNode }) => {
     // After a lost connection the server confirms nothing that was pending.
     // The room snapshot after the rejoin shows the real state.
     const handleDisconnect = () => {
-      pendingRef.current = { moves: 0, undos: 0 };
+      pendingRef.current = { moves: [], undos: 0 };
     };
 
     socket.on('room', handleRoom);
