@@ -1,0 +1,12 @@
+# Socket.IO server only. The Next.js frontend is deployed on Vercel.
+services:
+  - type: web
+    name: sketch-sync-socket
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build:server
+    startCommand: npm run start:socket
+    healthCheckPath: /hello
+    envVars:
+      - key: CLIENT_ORIGIN
+        sync: false

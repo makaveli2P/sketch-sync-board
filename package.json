@@ -1,6 +1,9 @@
 {
   "name": "sketch-sync",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "nodemon server/index.ts",
     "dev:client": "ts-node server/index.ts",
@@ -8,12 +11,13 @@
     "build:next": "next build",
     "build": "npm-run-all build:*",
     "start": "NODE_ENV=production node build/server/index.js",
+    "start:socket": "NODE_ENV=production node build/server/standalone.js",
     "lint": "next lint"
   },
   "dependencies": {
     "express": "^4.17.3",
     "framer-motion": "^6.3.3",
-    "next": "latest",
+    "next": "12.1.2",
     "react": "^17.0.2",
     "react-colorful": "^5.5.1",
     "react-dom": "^17.0.2",
