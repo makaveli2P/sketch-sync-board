@@ -1,6 +1,7 @@
 import { FaRedo, FaUndo } from 'react-icons/fa';
 
 import { useSocketConnected } from '@/common/hooks/useSocketConnected';
+import { useOptionsValue } from '@/common/state/options';
 import { useRoom } from '@/common/state/room';
 import { useSavedMoves } from '@/common/state/savedMoves';
 
@@ -12,6 +13,7 @@ const HistoryBtns = () => {
   const { myMoves } = useRoom();
   const savedMoves = useSavedMoves();
   const connected = useSocketConnected();
+  const { selection } = useOptionsValue();
 
   return (
     <>
@@ -28,7 +30,7 @@ const HistoryBtns = () => {
         type="button"
         aria-label="Undo"
         className={TOOLBAR_BUTTON}
-        disabled={!connected || !myMoves.length}
+        disabled={!selection && (!connected || !myMoves.length)}
         onClick={() => actionsRef.current.undo()}
       >
         <FaUndo className="h-5 w-5" />

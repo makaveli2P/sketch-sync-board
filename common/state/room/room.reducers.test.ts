@@ -15,12 +15,7 @@ import {
   sortMoves,
 } from './room.reducers';
 
-const move = (id: string, timestamp: number, mode: Move['options']['mode'] = 'draw'): Move => ({
-  ...DEFAULT_MOVE,
-  id,
-  timestamp,
-  options: { ...DEFAULT_MOVE.options, mode },
-});
+const move = (id: string, timestamp: number): Move => ({ ...DEFAULT_MOVE, id, timestamp });
 
 describe('room reducers', () => {
   it('never changes the room that they get', () => {
@@ -47,11 +42,10 @@ describe('room reducers', () => {
     expect(removeMoveFromUser(room, 'nobody')).toBe(room);
   });
 
-  it('replaces a local selection with the next own move', () => {
-    const withSelection = addMyMove(createRoom(), move('sel', 1, 'select'));
-    const room = addMyMove(withSelection, move('m1', 2));
+  it('adds own moves in order', () => {
+    const room = addMyMove(addMyMove(createRoom(), move('a', 1)), move('b', 2));
 
-    expect(room.myMoves.map((m) => m.id)).toEqual(['m1']);
+    expect(room.myMoves.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
   it('returns the removed own move', () => {

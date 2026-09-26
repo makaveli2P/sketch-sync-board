@@ -54,8 +54,11 @@ export const useSelection = () => {
 
   // Erases the selected area for all users.
   const handleDelete = useCallback(() => {
-    if (area && socket.connected) emitMove(createEraseMove(area));
-  }, [area, emitMove]);
+    if (!area || !socket.connected) return;
+
+    emitMove(createEraseMove(area));
+    clearSelection();
+  }, [area, clearSelection, emitMove]);
 
   const handleCopy = useCallback(async () => {
     const canvas = copyArea(true);

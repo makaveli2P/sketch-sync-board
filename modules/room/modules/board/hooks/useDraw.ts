@@ -5,7 +5,6 @@ import { useViewportSize } from '@/common/hooks/useViewportSize';
 import { getPos } from '@/common/lib/getPos';
 import { socket } from '@/common/lib/socket';
 import { useOptionsValue, useSetSelection } from '@/common/state/options';
-import { useMyMoves } from '@/common/state/room';
 import { useSetSavedMoves } from '@/common/state/savedMoves';
 import type { Move } from '@/common/types/global';
 
@@ -37,7 +36,6 @@ export const useDraw = (blocked: boolean) => {
   const options = useOptionsValue();
   const { x: movedX, y: movedY } = useBoardPosition();
   const { clearSavedMoves } = useSetSavedMoves();
-  const { handleAddMyMove } = useMyMoves();
   const { setSelection, clearSelection } = useSetSelection();
   const vw = useViewportSize();
   const ctx = useCtx();
@@ -157,8 +155,6 @@ export const useDraw = (blocked: boolean) => {
         width: rect.width + 2 * SELECTION_PADDING,
         height: rect.height + 2 * SELECTION_PADDING,
       });
-      // Undo removes the selection first.
-      handleAddMyMove({ ...DEFAULT_MOVE, path, options });
       return;
     }
 

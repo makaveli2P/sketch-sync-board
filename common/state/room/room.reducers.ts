@@ -67,15 +67,10 @@ export const removeMoveFromUser = (room: ClientRoom, userId: string): ClientRoom
   return { ...room, usersMoves };
 };
 
-// A new move replaces a selection, because a selection is only local.
-export const addMyMove = (room: ClientRoom, move: Move): ClientRoom => {
-  const last = room.myMoves.at(-1);
-  const myMoves =
-    last?.options.mode === 'select'
-      ? [...room.myMoves.slice(0, -1), move]
-      : [...room.myMoves, move];
-  return { ...room, myMoves };
-};
+export const addMyMove = (room: ClientRoom, move: Move): ClientRoom => ({
+  ...room,
+  myMoves: [...room.myMoves, move],
+});
 
 export const removeMyMove = (room: ClientRoom): [ClientRoom, Move | undefined] => {
   const move = room.myMoves.at(-1);

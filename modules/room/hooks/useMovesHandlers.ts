@@ -186,13 +186,11 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
 
   const undoNow = useCallback(() => {
     const move = handleRemoveMyMove();
+    if (!move) return;
 
-    if (move?.options.mode === 'select') clearSelection();
-    else if (move) {
-      addSavedMove(move);
-      socket.emit('undo');
-    }
-  }, [addSavedMove, clearSelection, handleRemoveMyMove]);
+    addSavedMove(move);
+    socket.emit('undo');
+  }, [addSavedMove, handleRemoveMyMove]);
 
   // The server confirmed or rejected one own move. When no own move is
   // pending, run the undos that waited.
@@ -212,10 +210,9 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
       // The stroke preview is still on the canvas, so draw everything again.
       fullRedrawNeeded.current = true;
       handleAddMyMove(move);
-      clearSelection();
       settleMove();
     },
-    [clearSelection, handleAddMyMove, settleMove],
+    [handleAddMyMove, settleMove],
   );
 
   const handleMoveRejected = useCallback(
@@ -229,13 +226,18 @@ export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean
   );
 
   const handleUndo = useCallback(() => {
+    // The first undo removes an active selection. It is only local.
+    if (selection) {
+      clearSelection();
+      return;
+    }
     if (!socket.connected) return;
 
     // The server undoes its last received move. If an own move is still on
     // its way, the undo waits for it.
     if (pendingRef.current.moves) pendingRef.current.undos += 1;
     else undoNow();
-  }, [pendingRef, undoNow]);
+  }, [clearSelection, pendingRef, selection, undoNow]);
 
   const handleRedo = useCallback(() => {
     if (!socket.connected) return;

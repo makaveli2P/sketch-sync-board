@@ -45,6 +45,15 @@ const joinByLink = async (page: Page, roomId: string, name: string) => {
   await expect(page.getByTestId('board')).toBeVisible();
 };
 
+// Delays every message from the server, like a real network. Without it,
+// the local server answers so fast that timing bugs do not show.
+const addLatency = (page: Page, ms: number) =>
+  page.routeWebSocket(/\/socket\.io\//, (ws) => {
+    const server = ws.connectToServer();
+    server.onMessage((message) => setTimeout(() => ws.send(message), ms));
+    ws.onMessage((message) => server.send(message));
+  });
+
 const blur = (page: Page) =>
   page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
@@ -89,6 +98,7 @@ test('two users draw, undo and chat together', async ({ browser }) => {
 });
 
 test('delete erases exactly the selected area', async ({ page }) => {
+  await addLatency(page, 300);
   await createRoom(page, 'Alice');
   await drawLine(page, [550, 400], [850, 400]);
   await drawLine(page, [600, 430], [800, 430]);
@@ -113,6 +123,7 @@ test('delete erases exactly the selected area', async ({ page }) => {
 });
 
 test('move places the selection at the right spot on a moved board', async ({ page }) => {
+  await addLatency(page, 300);
   await createRoom(page, 'Alice');
   await drawLine(page, [600, 400], [800, 400]);
   await expect.poll(() => inkIn(page, LINE_1)).toBeGreaterThan(0);

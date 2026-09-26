@@ -13,10 +13,7 @@ export const useSetSavedMoves = () => {
   const store = useStore();
 
   const addSavedMove = useCallback(
-    (move: Move) => {
-      if (move.options.mode === 'select') return;
-      store.set(savedMovesAtom, (prev) => [move, ...prev]);
-    },
+    (move: Move) => store.set(savedMovesAtom, (prev) => [move, ...prev]),
     [store],
   );
 

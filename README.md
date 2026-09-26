@@ -50,6 +50,8 @@ Open http://localhost:3000. The dev server reloads when you change a file.
 | `npm test`             | Runs the unit and server tests (Vitest).                                                                    |
 | `npm run test:e2e`     | Builds the app and runs the browser tests (Playwright). Locally, the tests use the installed Google Chrome. |
 
+To run the browser tests against a deployed site, set `E2E_BASE_URL`, for example `E2E_BASE_URL=https://sketch-sync-board.vercel.app npm run test:e2e`.
+
 ## Environment variables
 
 | Variable                 | Where                     | What it does                                                                                                                                                                                                |
