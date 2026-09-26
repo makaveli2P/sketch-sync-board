@@ -1,36 +1,40 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useState } from 'react';
+
+import { motion } from 'motion/react';
 import { useRouter } from 'next/router';
 import { FiChevronRight } from 'react-icons/fi';
 import { HiOutlineDownload } from 'react-icons/hi';
 import { ImExit } from 'react-icons/im';
 import { IoIosShareAlt } from 'react-icons/io';
+
 import { CANVAS_SIZE } from '@/common/constants/canvasSize';
 import { useViewportSize } from '@/common/hooks/useViewportSize';
+import { useRoom } from '@/common/state/room';
 import { useModal } from '@/modules/modal';
-import { useRefs } from '../../../hooks/useRefs';
-import ShareModal from '../modals/ShareModal';
-import BackgroundPicker from './BackgoundPicker';
+
+import BackgroundPicker from './BackgroundPicker';
 import ColorPicker from './ColorPicker';
 import HistoryBtns from './HistoryBtns';
 import ImagePicker from './ImagePicker';
 import LineWidthPicker from './LineWidthPicker';
 import ModePicker from './ModePicker';
 import ShapeSelector from './ShapeSelector';
+import { TOOLBAR_BUTTON } from './toolbarButton';
+import { useRefs } from '../../../hooks/useRefs';
+import ShareModal from '../modals/ShareModal';
+
+// Large screens always show the toolbar. Small screens show a toggle button.
+const LARGE_SCREEN = 1024;
 
 const ToolBar = () => {
   const { canvasRef, bgRef } = useRefs();
+  const { id } = useRoom();
   const { openModal } = useModal();
   const { width } = useViewportSize();
-  const [opened, setOpened] = useState(false);
+  const [openedOnSmallScreen, setOpenedOnSmallScreen] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
-    if (width >= 1024) setOpened(true);
-    else setOpened(false);
-  }, [width]);
-
-  const handleExit = () => router.push('/');
+  const opened = width >= LARGE_SCREEN || openedOnSmallScreen;
 
   const handleDownload = () => {
     const canvas = document.createElement('canvas');
@@ -38,46 +42,40 @@ const ToolBar = () => {
     canvas.height = CANVAS_SIZE.height;
 
     const tempCtx = canvas.getContext('2d');
+    if (!tempCtx || !canvasRef.current || !bgRef.current) return;
 
-    if (tempCtx && canvasRef.current && bgRef.current) {
-      tempCtx.drawImage(bgRef.current, 0, 0);
-      tempCtx.drawImage(canvasRef.current, 0, 0);
-    }
+    tempCtx.drawImage(bgRef.current, 0, 0);
+    tempCtx.drawImage(canvasRef.current, 0, 0);
 
     const link = document.createElement('a');
     link.href = canvas.toDataURL('image/png');
-    link.download = 'canvas.png';
+    link.download = `sketchsync-${id}.png`;
     link.click();
   };
 
-  const handleShare = () => openModal(<ShareModal />);
-
-  const buttonClass = "btn-icon bg-purple-600 hover:bg-purple-700 text-white rounded-full p-2 transition duration-200";
+  const divider = 'h-px w-full bg-purple-200 dark:bg-purple-700';
 
   return (
     <>
       <motion.button
-        className="btn-icon absolute bottom-1/2 -left-2 z-50 h-10 w-10 rounded-full bg-purple-600 text-white text-2xl transition-none lg:hidden"
+        type="button"
+        aria-label={opened ? 'Hide the toolbar' : 'Show the toolbar'}
+        className="absolute bottom-1/2 -left-2 z-60 btn-icon h-10 w-10 rounded-full bg-purple-600 text-2xl text-white transition-none lg:hidden"
         animate={{ rotate: opened ? 0 : 180 }}
         transition={{ duration: 0.2 }}
-        onClick={() => setOpened(!opened)}
+        onClick={() => setOpenedOnSmallScreen((prev) => !prev)}
       >
         <FiChevronRight />
       </motion.button>
       <motion.div
-        className="absolute left-10 top-[50%] z-50 grid grid-cols-2 items-center gap-5 rounded-lg bg-white dark:bg-gray-800 p-5 text-purple-700 dark:text-purple-300 shadow-lg 2xl:grid-cols-1"
-        animate={{
-          x: opened ? 0 : -160,
-          y: '-50%',
-        }}
-        transition={{
-          duration: 0.2,
-        }}
+        className="absolute top-[50%] left-10 z-60 grid grid-cols-2 items-center gap-5 rounded-lg bg-white p-5 text-purple-700 shadow-lg 2xl:grid-cols-1 dark:bg-gray-800 dark:text-purple-300"
+        animate={{ x: opened ? 0 : -160, y: '-50%' }}
+        transition={{ duration: 0.2 }}
       >
         <HistoryBtns />
 
-        <div className="h-px w-full bg-purple-200 dark:bg-purple-700 2xl:hidden" />
-        <div className="h-px w-full bg-purple-200 dark:bg-purple-700" />
+        <div className={`${divider} 2xl:hidden`} />
+        <div className={divider} />
 
         <ShapeSelector />
         <ColorPicker />
@@ -85,19 +83,34 @@ const ToolBar = () => {
         <ModePicker />
         <ImagePicker />
 
-        <div className="2xl:hidden"></div>
-        <div className="h-px w-full bg-purple-200 dark:bg-purple-700 2xl:hidden" />
-        <div className="h-px w-full bg-purple-200 dark:bg-purple-700" />
+        <div className="2xl:hidden" />
+        <div className={`${divider} 2xl:hidden`} />
+        <div className={divider} />
 
         <BackgroundPicker />
-        <button className={buttonClass} onClick={handleShare}>
-          <IoIosShareAlt className="w-5 h-5" />
+        <button
+          type="button"
+          aria-label="Invite people"
+          className={TOOLBAR_BUTTON}
+          onClick={() => openModal(<ShareModal />)}
+        >
+          <IoIosShareAlt className="h-5 w-5" />
         </button>
-        <button className={buttonClass} onClick={handleDownload}>
-          <HiOutlineDownload className="w-5 h-5" />
+        <button
+          type="button"
+          aria-label="Download the board"
+          className={TOOLBAR_BUTTON}
+          onClick={handleDownload}
+        >
+          <HiOutlineDownload className="h-5 w-5" />
         </button>
-        <button className={buttonClass} onClick={handleExit}>
-          <ImExit className="w-5 h-5" />
+        <button
+          type="button"
+          aria-label="Leave the room"
+          className={TOOLBAR_BUTTON}
+          onClick={() => router.push('/')}
+        >
+          <ImExit className="h-5 w-5" />
         </button>
       </motion.div>
     </>

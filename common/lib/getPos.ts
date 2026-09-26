@@ -1,4 +1,4 @@
-import { MotionValue } from 'framer-motion';
+import type { MotionValue } from 'motion/react';
 
-export const getPos = (pos: number, motionValue: MotionValue) =>
-  pos - motionValue.get();
+// Converts a screen position to a board position.
+export const getPos = (pos: number, motionValue: MotionValue<number>) => pos - motionValue.get();

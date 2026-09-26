@@ -1,9 +1,17 @@
+# dependencies
 node_modules/
+
+# build output
 .next/
 build/
-.vercel/
-.env*.local
-.DS_Store
+next-env.d.ts
 *.tsbuildinfo
-.vercel
+
+# tests
+test-results/
+playwright-report/
+
+# local config
+.vercel/
 .env*
+.DS_Store

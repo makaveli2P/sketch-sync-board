@@ -1,40 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import { useRecoilState } from 'recoil';
+import { useAtomValue } from 'jotai';
+import { AnimatePresence, motion } from 'motion/react';
 
-import Portal from '@/common/components/portal/components/Portal';
+import Portal from '@/common/components/Portal';
 
-import {
-  bgAnimation,
-  modalAnimation,
-} from '../animations/ModalManager.animations';
-import { modalAtom } from '../recoil/modal.atom';
+import { bgAnimation, modalAnimation } from '../animations/ModalManager.animations';
+import { modalAtom, useModal } from '../state/modal';
 
 const ModalManager = () => {
-  const [{ opened, modal }, setModal] = useRecoilState(modalAtom);
+  const { opened, modal } = useAtomValue(modalAtom);
+  const { closeModal } = useModal();
 
-  const [portalNode, setPortalNode] = useState<HTMLElement>();
+  // The portal covers the page. It must not catch clicks while it is empty.
+  useEffect(() => {
+    const node = document.getElementById('portal');
+    if (node) node.style.pointerEvents = opened ? 'all' : 'none';
+  }, [opened]);
 
   useEffect(() => {
-    if (!portalNode) {
-      const node = document.getElementById('portal');
-      if (node) setPortalNode(node);
-      return;
-    }
+    if (!opened) return undefined;
 
-    if (opened) {
-      portalNode.style.pointerEvents = 'all';
-    } else {
-      portalNode.style.pointerEvents = 'none';
-    }
-  }, [opened, portalNode]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeModal();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [closeModal, opened]);
 
   return (
     <Portal>
       <motion.div
         className="absolute z-40 flex min-h-full w-full items-center justify-center bg-black/80"
-        onClick={() => setModal({ modal: <></>, opened: false })}
+        onClick={closeModal}
         variants={bgAnimation}
         initial="closed"
         animate={opened ? 'opened' : 'closed'}
@@ -42,6 +40,8 @@ const ModalManager = () => {
         <AnimatePresence>
           {opened && (
             <motion.div
+              role="dialog"
+              aria-modal="true"
               variants={modalAnimation}
               initial="closed"
               animate="opened"

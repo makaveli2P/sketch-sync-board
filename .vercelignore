@@ -1,2 +1,6 @@
+# Only the Next.js frontend runs on Vercel.
 build/
 render.yaml
+e2e/
+test-results/
+playwright-report/

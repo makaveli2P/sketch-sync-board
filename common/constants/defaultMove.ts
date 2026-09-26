@@ -1,4 +1,4 @@
-import { Move } from '../types/global';
+import { type Move } from '../types/global';
 
 export const DEFAULT_MOVE: Move = {
   circle: {

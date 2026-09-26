@@ -1,40 +1,32 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
+import { useMotionValueEvent } from 'motion/react';
 import { AiOutlineDelete } from 'react-icons/ai';
 import { BsArrowsMove } from 'react-icons/bs';
 import { FiCopy } from 'react-icons/fi';
 
-import { useOptionsValue } from '@/common/recoil/options';
+import { useOptionsValue } from '@/common/state/options';
 
 import { useRefs } from '../../../hooks/useRefs';
 import { useBoardPosition } from '../hooks/useBoardPosition';
 
 const SelectionBtns = () => {
   const { selection } = useOptionsValue();
-  const { selectionRefs } = useRefs();
+  const { actionsRef } = useRefs();
   const boardPos = useBoardPosition();
 
-  const [boardX, setX] = useState(0);
-  const [boardY, setY] = useState(0);
+  const [boardX, setX] = useState(() => boardPos.x.get());
+  const [boardY, setY] = useState(() => boardPos.y.get());
+  useMotionValueEvent(boardPos.x, 'change', setX);
+  useMotionValueEvent(boardPos.y, 'change', setY);
 
-  useEffect(() => {
-    const unsubscribe = boardPos.x.onChange(setX);
-    return unsubscribe;
-  }, [boardPos.x]);
+  if (!selection) return null;
 
-  useEffect(() => {
-    const unsubscribe = boardPos.y.onChange(setY);
-    return unsubscribe;
-  }, [boardPos.y]);
+  const { x, y, height, width } = selection;
+  const top = Math.min(y, y + height) - 40 + boardY;
+  const left = Math.min(x, x + width) + boardX;
 
-  let top = -40;
-  let left = -40;
-
-  if (selection) {
-    const { x, y, width, height } = selection;
-    top = Math.min(y, y + height) - 40 + boardY;
-    left = Math.min(x, x + width) + boardX;
-  }
+  const buttonClass = 'rounded-full bg-gray-200 p-2';
 
   return (
     <div
@@ -42,26 +34,26 @@ const SelectionBtns = () => {
       style={{ top, left }}
     >
       <button
-        className="rounded-full bg-gray-200 p-2"
-        ref={(ref) => {
-          if (ref && selectionRefs.current) selectionRefs.current[0] = ref;
-        }}
+        type="button"
+        aria-label="Move the selection"
+        className={buttonClass}
+        onClick={() => actionsRef.current.moveSelection()}
       >
         <BsArrowsMove />
       </button>
       <button
-        className="rounded-full bg-gray-200 p-2"
-        ref={(ref) => {
-          if (ref && selectionRefs.current) selectionRefs.current[1] = ref;
-        }}
+        type="button"
+        aria-label="Copy the selection"
+        className={buttonClass}
+        onClick={() => actionsRef.current.copySelection()}
       >
         <FiCopy />
       </button>
       <button
-        className="rounded-full bg-gray-200 p-2"
-        ref={(ref) => {
-          if (ref && selectionRefs.current) selectionRefs.current[2] = ref;
-        }}
+        type="button"
+        aria-label="Delete the selection"
+        className={buttonClass}
+        onClick={() => actionsRef.current.deleteSelection()}
       >
         <AiOutlineDelete />
       </button>

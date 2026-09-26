@@ -1,56 +1,80 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
-* {
-  @apply font-montserrat font-medium focus:outline-none focus:ring focus:ring-red-500;
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --text-*: initial;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --text-5xl: 3rem;
+  --text-6xl: 4rem;
+
+  --font-*: initial;
+  /* Set by next/font in pages/_app.tsx. */
+  --font-montserrat: var(--font-montserrat-next), sans-serif;
+  --default-font-family: var(--font-montserrat);
 }
 
-@layer components {
-  .btn-icon {
-    @apply flex h-7 w-7 items-center justify-center rounded-md text-xl text-white transition-all hover:scale-125 active:scale-100 disabled:opacity-25;
+@layer base {
+  /* Tailwind CSS v4 uses `currentcolor` as the default border color. This
+     keeps the v3 default. */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
   }
 
-  .btn {
-    @apply rounded-xl bg-black p-5 py-1 text-white transition-all hover:scale-105 active:scale-100;
+  * {
+    @apply font-medium focus:ring-3 focus:ring-red-500 focus:outline-hidden;
   }
 
-  .input {
-    @apply rounded-xl border p-5 py-1;
+  /* Tailwind CSS v4 no longer shows a pointer on buttons. */
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
   }
 
-  .overflow-overlay {
-    overflow-y: scroll;
-    overflow-y: overlay;
+  body {
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    overscroll-behavior: contain;
+    cursor:
+      url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" style="transform: rotate(-90deg); stroke: white; stroke-width: 1px;" version="1.1" width="16" height="16"><path d="M14.082 2.182a.5.5 0 0 1 .103.557L8.528 15.467a.5.5 0 0 1-.917-.007L5.57 10.694.803 8.652a.5.5 0 0 1-.006-.916l12.728-5.657a.5.5 0 0 1 .556.103z"></path></svg>'),
+      auto;
+  }
+
+  html {
+    height: -webkit-fill-available;
   }
 }
 
-.drag {
-  cursor: grab;
+@utility btn-icon {
+  @apply flex h-7 w-7 items-center justify-center rounded-md text-xl text-white transition-all hover:scale-125 active:scale-100 disabled:opacity-25;
 }
 
-body {
-  min-height: 100vh;
-  min-height: -webkit-fill-available;
-  overscroll-behavior: contain;
-  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" style="transform: rotate(-90deg); stroke: white; stroke-width: 1px;" version="1.1" width="16" height="16"><path d="M14.082 2.182a.5.5 0 0 1 .103.557L8.528 15.467a.5.5 0 0 1-.917-.007L5.57 10.694.803 8.652a.5.5 0 0 1-.006-.916l12.728-5.657a.5.5 0 0 1 .556.103z"></path></svg>'),
-    auto;
+@utility btn {
+  @apply rounded-xl bg-black p-5 py-1 text-white transition-all hover:scale-105 active:scale-100;
 }
-html {
-  height: -webkit-fill-available;
+
+@utility input {
+  @apply rounded-xl border p-5 py-1;
 }
 
 #__next,
 #portal {
   z-index: 0;
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  inset: 0;
   overflow-x: hidden;
-  overflow-y: scroll;
-  overflow-y: overlay;
+  overflow-y: auto;
 }
 
 #portal {
@@ -66,7 +90,6 @@ input[type='range']::-webkit-slider-thumb {
   cursor: pointer;
 }
 
-/* All the same stuff for Firefox */
 input[type='range']::-moz-range-thumb {
   height: 1.2rem;
   width: 1.2rem;
@@ -75,23 +98,12 @@ input[type='range']::-moz-range-thumb {
   cursor: pointer;
 }
 
-/* All the same stuff for IE */
-input[type='range']::-ms-thumb {
-  height: 1.2rem;
-  width: 1.2rem;
-  border-radius: 50%;
-  background: #000;
-  cursor: pointer;
-}
-
 *::-webkit-scrollbar-track {
-  -webkit-box-shadow: none !important;
-  background-color: transparent !important;
+  background-color: transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 6px !important;
-  position: absolute;
+  width: 6px;
   background-color: transparent;
 }
 

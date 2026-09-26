@@ -1,43 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { motion, useMotionValue } from 'framer-motion';
+import { motion, useMotionValue, useMotionValueEvent } from 'motion/react';
 
 import { CANVAS_SIZE } from '@/common/constants/canvasSize';
 import { useViewportSize } from '@/common/hooks/useViewportSize';
 
 import { useRefs } from '../../../hooks/useRefs';
+import { copyToMinimap } from '../helpers/Canvas.helpers';
 import { useBoardPosition } from '../hooks/useBoardPosition';
 
 const MiniMap = ({ dragging }: { dragging: boolean }) => {
-  const { minimapRef } = useRefs();
+  const { minimapRef, bgRef, canvasRef } = useRefs();
   const boardPos = useBoardPosition();
   const { width, height } = useViewportSize();
 
   const [x, setX] = useState(0);
   const [y, setY] = useState(0);
-
   const [draggingMinimap, setDraggingMinimap] = useState(false);
 
-  useEffect(() => {
-    if (!draggingMinimap) {
-      const unsubscribe = boardPos.x.onChange(setX);
-      return unsubscribe;
-    }
-
-    return () => {};
-  }, [boardPos.x, draggingMinimap]);
-
-  useEffect(() => {
-    if (!draggingMinimap) {
-      const unsubscribe = boardPos.y.onChange(setY);
-      return unsubscribe;
-    }
-
-    return () => {};
-  }, [boardPos.y, draggingMinimap]);
-
   const containerRef = useRef<HTMLDivElement>(null);
-
   const miniX = useMotionValue(0);
   const miniY = useMotionValue(0);
 
@@ -48,23 +29,34 @@ const MiniMap = ({ dragging }: { dragging: boolean }) => {
     return 20;
   }, [width]);
 
-  useEffect(() => {
-    miniX.onChange((newX) => {
-      if (!dragging) boardPos.x.set(Math.floor(-newX * divider));
-    });
-    miniY.onChange((newY) => {
-      if (!dragging) boardPos.y.set(Math.floor(-newY * divider));
-    });
+  const pixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
+  const canvasWidth = Math.round((CANVAS_SIZE.width / divider) * pixelRatio);
+  const canvasHeight = Math.round((CANVAS_SIZE.height / divider) * pixelRatio);
 
-    return () => {
-      miniX.clearListeners();
-      miniY.clearListeners();
-    };
-  }, [boardPos.x, boardPos.y, divider, dragging, miniX, miniY]);
+  // A new canvas size clears the canvas, so copy the board again.
+  useEffect(() => {
+    copyToMinimap(minimapRef.current, bgRef.current, canvasRef.current);
+  }, [bgRef, canvasHeight, canvasRef, canvasWidth, minimapRef]);
+
+  // Follow the board, except while the user drags the minimap frame.
+  useMotionValueEvent(boardPos.x, 'change', (value) => {
+    if (!draggingMinimap) setX(value);
+  });
+  useMotionValueEvent(boardPos.y, 'change', (value) => {
+    if (!draggingMinimap) setY(value);
+  });
+
+  // Move the board when the user drags the minimap frame.
+  useMotionValueEvent(miniX, 'change', (value) => {
+    if (!dragging) boardPos.x.set(Math.floor(-value * divider));
+  });
+  useMotionValueEvent(miniY, 'change', (value) => {
+    if (!dragging) boardPos.y.set(Math.floor(-value * divider));
+  });
 
   return (
     <div
-      className="absolute right-10 top-10 z-30 overflow-hidden rounded-lg shadow-lg"
+      className="absolute top-10 right-10 z-30 overflow-hidden rounded-lg shadow-lg"
       style={{
         width: CANVAS_SIZE.width / divider,
         height: CANVAS_SIZE.height / divider,
@@ -73,8 +65,8 @@ const MiniMap = ({ dragging }: { dragging: boolean }) => {
     >
       <canvas
         ref={minimapRef}
-        width={CANVAS_SIZE.width}
-        height={CANVAS_SIZE.height}
+        width={canvasWidth}
+        height={canvasHeight}
         className="h-full w-full"
       />
       <motion.div

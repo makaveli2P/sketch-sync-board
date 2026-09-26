@@ -1,28 +1,37 @@
 import { FaRedo, FaUndo } from 'react-icons/fa';
-import { useMyMoves } from '@/common/recoil/room';
-import { useSavedMoves } from '@/common/recoil/savedMoves';
+
+import { useSocketConnected } from '@/common/hooks/useSocketConnected';
+import { useRoom } from '@/common/state/room';
+import { useSavedMoves } from '@/common/state/savedMoves';
+
+import { TOOLBAR_BUTTON } from './toolbarButton';
 import { useRefs } from '../../../hooks/useRefs';
 
 const HistoryBtns = () => {
-  const { redoRef, undoRef } = useRefs();
-  const { myMoves } = useMyMoves();
+  const { actionsRef } = useRefs();
+  const { myMoves } = useRoom();
   const savedMoves = useSavedMoves();
+  const connected = useSocketConnected();
 
   return (
     <>
       <button
-        className="btn-icon bg-purple-600 hover:bg-purple-700 text-white rounded-full p-2 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-        ref={redoRef}
-        disabled={!savedMoves.length}
+        type="button"
+        aria-label="Redo"
+        className={TOOLBAR_BUTTON}
+        disabled={!connected || !savedMoves.length}
+        onClick={() => actionsRef.current.redo()}
       >
-        <FaRedo className="w-5 h-5" />
+        <FaRedo className="h-5 w-5" />
       </button>
       <button
-        className="btn-icon bg-purple-600 hover:bg-purple-700 text-white rounded-full p-2 transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-        ref={undoRef}
-        disabled={!myMoves.length}
+        type="button"
+        aria-label="Undo"
+        className={TOOLBAR_BUTTON}
+        disabled={!connected || !myMoves.length}
+        onClick={() => actionsRef.current.undo()}
       >
-        <FaUndo className="w-5 h-5" />
+        <FaUndo className="h-5 w-5" />
       </button>
     </>
   );

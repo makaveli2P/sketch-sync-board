@@ -1,160 +1,186 @@
-import { Server as HttpServer } from 'http';
+import type { Server as HttpServer } from 'node:http';
 
 import { Server } from 'socket.io';
-import { v4 } from 'uuid';
 
+import type { ClientToServerEvents, ServerToClientEvents } from '@/common/types/global';
+
+import { RoomStore, type RoomStoreOptions } from './rooms';
 import {
-  ClientToServerEvents,
-  Move,
-  Room,
-  ServerToClientEvents,
-} from '@/common/types/global';
+  isFiniteNumber,
+  MAX_IMAGE_LENGTH,
+  parseMessage,
+  parseMove,
+  parseRoomId,
+  parseUsername,
+} from './validation';
 
-export const attachSocket = (server: HttpServer, corsOrigins?: string[]) => {
-  const io = new Server<ClientToServerEvents, ServerToClientEvents>(
-    server,
-    corsOrigins ? { cors: { origin: corsOrigins } } : {}
-  );
+// Room creation limit for one connection.
+const CREATE_ROOM_LIMIT = 10;
+const CREATE_ROOM_WINDOW_MS = 60 * 1000;
 
-  const rooms = new Map<string, Room>();
+export interface SocketOptions {
+  // Allowed browser origins. Leave it out when the page and the socket have
+  // the same origin.
+  corsOrigins?: (string | RegExp)[];
+  // Set to false when another handler (for example Next.js hot reload) also
+  // uses WebSocket upgrades on the same HTTP server.
+  destroyUpgrade?: boolean;
+  rooms?: Partial<RoomStoreOptions>;
+}
 
-  const addMove = (roomId: string, socketId: string, move: Move) => {
-    const room = rooms.get(roomId)!;
+type Handler = (...args: never[]) => void;
 
-    if (!room.users.has(socketId)) {
-      room.usersMoves.set(socketId, [move]);
-    }
+export const attachSocket = (server: HttpServer, options: SocketOptions = {}) => {
+  const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
+    cors: options.corsOrigins ? { origin: options.corsOrigins } : undefined,
+    destroyUpgrade: options.destroyUpgrade ?? true,
+    // Room image moves are data URIs. Allow them plus some protocol overhead.
+    maxHttpBufferSize: MAX_IMAGE_LENGTH + 100_000,
+  });
+  const store = new RoomStore(options.rooms);
 
-    room.usersMoves.get(socketId)!.push(move);
-  };
-
-  const undoMove = (roomId: string, socketId: string) => {
-    const room = rooms.get(roomId)!;
-
-    room.usersMoves.get(socketId)!.pop();
+  // Each browser tab sends a random id. When a tab reconnects, the server can
+  // still have the tab's old connection, because it notices a lost
+  // connection only after the ping timeout. The old connection must not stay
+  // in the room as a second copy of the user.
+  const removeOldConnections = (targetRoomId: string, clientId: string, socketId: string) => {
+    io.sockets.adapter.rooms.get(targetRoomId)?.forEach((otherId) => {
+      const other = io.sockets.sockets.get(otherId);
+      if (other && otherId !== socketId && other.data.clientId === clientId) other.disconnect(true);
+    });
   };
 
   io.on('connection', (socket) => {
-    const getRoomId = () => {
-      const joinedRoom = [...socket.rooms].find((room) => room !== socket.id);
+    const { clientId } = socket.handshake.auth as { clientId?: unknown };
+    socket.data.clientId =
+      typeof clientId === 'string' && clientId ? clientId.slice(0, 64) : socket.id;
 
-      if (!joinedRoom) return socket.id;
+    // Each socket is in at most one room.
+    let roomId: string | null = null;
+    const createTimes: number[] = [];
+    // True after the other users heard about this join, so that a repeated
+    // "joined_room" does not announce the user again.
+    let announced = false;
 
-      return joinedRoom;
+    // An error in one handler must not stop the process.
+    const on = <E extends keyof ClientToServerEvents>(event: E, handler: Handler) => {
+      socket.on(event, ((...args: never[]) => {
+        try {
+          handler(...args);
+        } catch (err) {
+          console.error(`[socket] "${event}" handler failed:`, err);
+        }
+      }) as never);
     };
 
-    const leaveRoom = (roomId: string, socketId: string) => {
-      const room = rooms.get(roomId);
-      if (!room) return;
+    const leaveCurrentRoom = () => {
+      if (!roomId) return;
 
-      const userMoves = room.usersMoves.get(socketId);
-
-      if (userMoves) room.drawed.push(...userMoves);
-      room.users.delete(socketId);
-
-      socket.leave(roomId);
+      const leftRoomId = roomId;
+      roomId = null;
+      announced = false;
+      store.leave(leftRoomId, socket.id);
+      socket.leave(leftRoomId);
+      io.to(leftRoomId).emit('user_disconnected', socket.id);
     };
 
-    socket.on('create_room', (username) => {
-      let roomId: string;
-      do {
-        roomId = Math.random().toString(36).substring(2, 6);
-      } while (rooms.has(roomId));
+    on('create_room', (username: unknown) => {
+      leaveCurrentRoom();
 
-      socket.join(roomId);
+      const now = Date.now();
+      while (createTimes.length && now - createTimes[0] > CREATE_ROOM_WINDOW_MS)
+        createTimes.shift();
+      if (createTimes.length >= CREATE_ROOM_LIMIT) {
+        socket.emit('created', '');
+        return;
+      }
+      createTimes.push(now);
 
-      rooms.set(roomId, {
-        usersMoves: new Map([[socket.id, []]]),
-        drawed: [],
-        users: new Map([[socket.id, username]]),
-      });
+      const newRoomId = store.create(socket.id, parseUsername(username));
+      if (!newRoomId) {
+        socket.emit('created', '');
+        return;
+      }
 
-      io.to(socket.id).emit('created', roomId);
+      roomId = newRoomId;
+      socket.join(newRoomId);
+      socket.emit('created', newRoomId);
     });
 
-    socket.on('check_room', (roomId) => {
-      if (rooms.has(roomId)) socket.emit('room_exists', true);
-      else socket.emit('room_exists', false);
+    on('check_room', (id: unknown) => {
+      socket.emit('room_exists', store.has(parseRoomId(id)));
     });
 
-    socket.on('join_room', (roomId, username) => {
-      const room = rooms.get(roomId);
+    on('join_room', (id: unknown, username: unknown) => {
+      const joinRoomId = parseRoomId(id);
+      leaveCurrentRoom();
+      if (joinRoomId) removeOldConnections(joinRoomId, socket.data.clientId, socket.id);
 
-      if (room && room.users.size < 12) {
-        socket.join(roomId);
+      if (!joinRoomId || store.join(joinRoomId, socket.id, parseUsername(username)) !== 'ok') {
+        socket.emit('joined', joinRoomId ?? '', true);
+        return;
+      }
 
-        room.users.set(socket.id, username);
-        room.usersMoves.set(socket.id, []);
-
-        io.to(socket.id).emit('joined', roomId);
-      } else io.to(socket.id).emit('joined', '', true);
+      roomId = joinRoomId;
+      socket.join(joinRoomId);
+      socket.emit('joined', joinRoomId);
     });
 
-    socket.on('joined_room', () => {
-      const roomId = getRoomId();
+    on('joined_room', () => {
+      const snapshot = roomId && store.snapshot(roomId);
+      if (!roomId || !snapshot) return;
 
-      const room = rooms.get(roomId);
-      if (!room) return;
+      socket.emit('room', snapshot);
+      if (announced) return;
 
-      io.to(socket.id).emit(
-        'room',
-        room,
-        JSON.stringify([...room.usersMoves]),
-        JSON.stringify([...room.users])
-      );
-
-      socket.broadcast
+      announced = true;
+      socket
         .to(roomId)
-        .emit('new_user', socket.id, room.users.get(socket.id) || 'Anonymous');
+        .emit('new_user', socket.id, store.username(roomId, socket.id) ?? 'Anonymous');
     });
 
-    socket.on('leave_room', () => {
-      const roomId = getRoomId();
-      leaveRoom(roomId, socket.id);
+    on('leave_room', () => leaveCurrentRoom());
 
-      io.to(roomId).emit('user_disconnected', socket.id);
+    on('draw', (rawMove: unknown) => {
+      if (!roomId) {
+        socket.emit('move_rejected', 'You are not connected to a room.');
+        return;
+      }
+
+      const parsed = parseMove(rawMove);
+      if (!parsed) {
+        socket.emit('move_rejected', 'The server could not accept this drawing.');
+        return;
+      }
+
+      const move = store.addMove(roomId, socket.id, parsed);
+      if (!move) {
+        socket.emit('move_rejected', 'This room has too many drawings.');
+        return;
+      }
+
+      socket.emit('your_move', move);
+      socket.to(roomId).emit('user_draw', move, socket.id);
     });
 
-    socket.on('draw', (move) => {
-      const roomId = getRoomId();
-
-      const timestamp = Date.now();
-
-      // eslint-disable-next-line no-param-reassign
-      move.id = v4();
-
-      addMove(roomId, socket.id, { ...move, timestamp });
-
-      io.to(socket.id).emit('your_move', { ...move, timestamp });
-
-      socket.broadcast
-        .to(roomId)
-        .emit('user_draw', { ...move, timestamp }, socket.id);
+    on('undo', () => {
+      if (roomId && store.undo(roomId, socket.id)) socket.to(roomId).emit('user_undo', socket.id);
     });
 
-    socket.on('undo', () => {
-      const roomId = getRoomId();
+    on('mouse_move', (x: unknown, y: unknown) => {
+      if (!roomId || !isFiniteNumber(x) || !isFiniteNumber(y)) return;
 
-      undoMove(roomId, socket.id);
-
-      socket.broadcast.to(roomId).emit('user_undo', socket.id);
+      // A lost cursor position does not matter, so do not buffer it.
+      socket.to(roomId).volatile.emit('mouse_moved', x, y, socket.id);
     });
 
-    socket.on('mouse_move', (x, y) => {
-      socket.broadcast.to(getRoomId()).emit('mouse_moved', x, y, socket.id);
+    on('send_msg', (rawMsg: unknown) => {
+      const msg = parseMessage(rawMsg);
+      if (roomId && msg) io.to(roomId).emit('new_msg', socket.id, msg);
     });
 
-    socket.on('send_msg', (msg) => {
-      io.to(getRoomId()).emit('new_msg', socket.id, msg);
-    });
-
-    socket.on('disconnecting', () => {
-      const roomId = getRoomId();
-      leaveRoom(roomId, socket.id);
-
-      io.to(roomId).emit('user_disconnected', socket.id);
-    });
+    socket.on('disconnecting', () => leaveCurrentRoom());
   });
 
-  return io;
+  return { io, store };
 };

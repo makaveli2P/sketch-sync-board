@@ -1,4 +1,4 @@
-# Socket.IO server only. The Next.js frontend is deployed on Vercel.
+# Socket.IO server only. Vercel hosts the Next.js frontend.
 services:
   - type: web
     name: sketch-sync-socket
@@ -8,5 +8,6 @@ services:
     startCommand: npm run start:socket
     healthCheckPath: /hello
     envVars:
+      # The production URL and the Vercel preview URLs of the frontend.
       - key: CLIENT_ORIGIN
-        sync: false
+        value: https://sketch-sync-board.vercel.app,https://sketch-sync-board-*-dhruvs-projects-b5f51ca4.vercel.app

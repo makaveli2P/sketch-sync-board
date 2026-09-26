@@ -1,5 +1,4 @@
-import { socket } from '@/common/lib/socket';
-import { useRoom } from '@/common/recoil/room';
+import { useRoom } from '@/common/state/room';
 
 import UserMouse from './UserMouse';
 
@@ -8,10 +7,9 @@ const MousesRenderer = () => {
 
   return (
     <>
-      {[...users.keys()].map((userId) => {
-        if (userId === socket.id) return null;
-        return <UserMouse userId={userId} key={userId} />;
-      })}
+      {[...users.keys()].map((userId) => (
+        <UserMouse userId={userId} key={userId} />
+      ))}
     </>
   );
 };

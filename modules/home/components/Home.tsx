@@ -1,132 +1,147 @@
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/router";
-import { socket } from "@/common/lib/socket";
-import { useModal } from "@/modules/modal";
-import { useSetRoomId } from "@/common/recoil/room";
-import NotFoundModal from "../modals/NotFound";
-import { motion } from "framer-motion";
-import Image from "next/image";
+import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
+
+import { motion } from 'motion/react';
+import Image from 'next/image';
+import { useRouter } from 'next/router';
+import { toast } from 'react-toastify';
+
+import ServerStatus from '@/common/components/ServerStatus';
+import { MAX_USERNAME_LENGTH } from '@/common/constants/limits';
+import { useSocketConnected } from '@/common/hooks/useSocketConnected';
+import { socket } from '@/common/lib/socket';
+import { loadUsername, saveUsername } from '@/common/lib/username';
+import { useResetRoom, useSetRoomId } from '@/common/state/room';
+import { useModal } from '@/modules/modal';
+
+import NotFoundModal from '../modals/NotFound';
+
+const subscribeNothing = () => () => {};
+
+const inputClass =
+  'input w-full rounded-md border border-purple-300 px-4 py-2 focus:ring-3 focus:ring-purple-200 focus:outline-hidden';
+const buttonClass =
+  'btn mt-2 w-full rounded-md bg-purple-600 px-4 py-2 font-semibold text-white transition duration-200 hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50';
+const labelClass = 'self-start leading-tight font-medium text-[#8a6c94]';
 
 const Home = () => {
   const { openModal } = useModal();
   const setAtomRoomId = useSetRoomId();
-
-  const [roomId, setRoomId] = useState("");
-  const [username, setUsername] = useState("");
-
+  const resetRoom = useResetRoom();
+  const connected = useSocketConnected();
   const router = useRouter();
 
+  const [roomId, setRoomId] = useState('');
+  const savedName = useSyncExternalStore(subscribeNothing, loadUsername, () => '');
+  const [typedName, setTypedName] = useState<string | null>(null);
+  const username = typedName ?? savedName;
+
   useEffect(() => {
-    document.body.style.background =
-      "linear-gradient(to bottom right, #E3DFFF, #CAB8FF)"; // Purple and lavender gradient
+    document.body.style.background = 'linear-gradient(to bottom right, #E3DFFF, #CAB8FF)';
+    return () => {
+      document.body.style.background = '';
+    };
   }, []);
 
+  // The user is on the home page, so they are in no room.
   useEffect(() => {
-    socket.on("created", (roomIdFromServer) => {
-      setAtomRoomId(roomIdFromServer);
-      router.push(roomIdFromServer);
-    });
+    socket.emit('leave_room');
+    resetRoom();
+  }, [resetRoom]);
 
-    const handleJoinedRoom = (roomIdFromServer: string, failed?: boolean) => {
-      if (!failed) {
-        setAtomRoomId(roomIdFromServer);
-        router.push(roomIdFromServer);
-      } else {
-        openModal(<NotFoundModal id={roomId} />);
+  useEffect(() => {
+    const handleCreated = (newRoomId: string) => {
+      if (!newRoomId) {
+        toast.error('The server could not create a room. Try again later.', {
+          position: 'top-center',
+        });
+        return;
       }
+      setAtomRoomId(newRoomId, username);
+      router.push(`/${newRoomId}`);
     };
 
-    socket.on("joined", handleJoinedRoom);
+    const handleJoined = (joinedRoomId: string, failed?: boolean) => {
+      if (failed) {
+        openModal(<NotFoundModal id={joinedRoomId || roomId.trim()} />);
+        return;
+      }
+      setAtomRoomId(joinedRoomId, username);
+      router.push(`/${joinedRoomId}`);
+    };
+
+    socket.on('created', handleCreated);
+    socket.on('joined', handleJoined);
 
     return () => {
-      socket.off("created");
-      socket.off("joined", handleJoinedRoom);
+      socket.off('created', handleCreated);
+      socket.off('joined', handleJoined);
     };
-  }, [openModal, roomId, router, setAtomRoomId]);
-
-  useEffect(() => {
-    socket.emit("leave_room");
-    setAtomRoomId("");
-  }, [setAtomRoomId]);
+  }, [openModal, roomId, router, setAtomRoomId, username]);
 
   const handleCreateRoom = () => {
-    socket.emit("create_room", username);
+    saveUsername(username);
+    socket.emit('create_room', username);
   };
 
   const handleJoinRoom = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (roomId) socket.emit("join_room", roomId, username);
+    const id = roomId.trim().toLowerCase();
+    if (!id) return;
+
+    saveUsername(username);
+    socket.emit('join_room', id, username);
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center">
-      <nav className="w-full py-4 bg-transparent">
-        <div className="container mx-auto flex justify-between items-center px-4">
+    <div className="flex min-h-screen flex-col items-center">
+      <nav className="w-full bg-transparent py-4">
+        <div className="container mx-auto flex items-center justify-between px-4">
           <div className="flex items-center">
-            <Image
-              src="/SketchSyncLogo.svg"
-              alt="SketchSync Logo"
-              width={40}
-              height={40}
-            />
-            <h1 className="ml-2 text-xl font-semibold" style={{ color: '#6a4c74' }}>
-              SketchSync
-            </h1>
+            <Image src="/SketchSyncLogo.svg" alt="" width={40} height={40} priority />
+            <span className="ml-2 text-xl font-semibold text-[#6a4c74]">SketchSync</span>
           </div>
         </div>
       </nav>
 
-      <motion.div
+      <motion.main
         className="flex flex-col items-center py-24"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
       >
-        <h1 className="text-6xl font-extrabold leading-tight" style={{ color: '#6a4c74' }}>
-          SketchSync
-        </h1>
-        <h3 className="text-lg sm:text-xl text-white">
-          A Better Digital Whiteboard
-        </h3>
+        <h1 className="text-6xl leading-tight font-extrabold text-[#6a4c74]">SketchSync</h1>
+        <p className="text-lg text-white sm:text-xl">A Better Digital Whiteboard</p>
 
-        <div className="mt-10 flex flex-col gap-2 w-80">
-          <label className="self-start font-medium leading-tight" style={{ color: '#8a6c94' }}>
+        <div className="mt-10 flex w-80 flex-col gap-2">
+          <label htmlFor="username" className={labelClass}>
             Enter Your Name:
           </label>
           <input
-            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none w-full"
+            className={inputClass}
             id="username"
             placeholder="Username"
+            maxLength={MAX_USERNAME_LENGTH}
             value={username}
-            onChange={(e) => setUsername(e.target.value.slice(0, 15))}
+            onChange={(e) => setTypedName(e.target.value.slice(0, MAX_USERNAME_LENGTH))}
           />
         </div>
 
         <div className="my-8 h-px w-80 bg-purple-200" />
 
-        <form
-          className="flex flex-col items-center gap-3 w-80"
-          onSubmit={handleJoinRoom}
-        >
-          <label
-            htmlFor="room-id"
-            className="self-start font-medium leading-tight"
-            style={{ color: '#8a6c94' }}
-          >
+        <form className="flex w-80 flex-col items-center gap-3" onSubmit={handleJoinRoom}>
+          <label htmlFor="room-id" className={labelClass}>
             Enter Room ID:
           </label>
           <input
-            className="input px-4 py-2 rounded-md border border-purple-300 focus:ring focus:ring-purple-200 focus:outline-none w-full"
+            className={inputClass}
             id="room-id"
             placeholder="example: xv28"
+            autoComplete="off"
             value={roomId}
             onChange={(e) => setRoomId(e.target.value)}
           />
-          <button
-            className="btn mt-2 w-full px-4 py-2 rounded-md bg-purple-600 text-white font-semibold hover:bg-purple-700 transition duration-200"
-            type="submit"
-          >
+          <button className={buttonClass} type="submit" disabled={!connected || !roomId.trim()}>
             Join
           </button>
         </form>
@@ -137,19 +152,20 @@ const Home = () => {
           <div className="h-px w-full bg-purple-200" />
         </div>
 
-        <div className="flex flex-col items-center gap-2 w-80">
-          <h5 className="self-start font-medium leading-tight" style={{ color: '#8a6c94' }}>
-            Create New Room
-          </h5>
-
+        <div className="flex w-80 flex-col items-center gap-2">
+          <h2 className={labelClass}>Create New Room</h2>
           <button
-            className="btn mt-2 w-full px-4 py-2 rounded-md bg-purple-600 text-white font-semibold hover:bg-purple-700 transition duration-200"
+            className={buttonClass}
+            type="button"
+            disabled={!connected}
             onClick={handleCreateRoom}
           >
             Create
           </button>
         </div>
-      </motion.div>
+
+        <ServerStatus />
+      </motion.main>
     </div>
   );
 };

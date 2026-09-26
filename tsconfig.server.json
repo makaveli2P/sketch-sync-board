@@ -1,11 +1,18 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "commonjs",
-    "outDir": "build",
-    "target": "es2017",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": false,
+    "incremental": false,
     "isolatedModules": false,
-    "noEmit": false
+    "jsx": "preserve",
+    "outDir": "build",
+    "rootDir": ".",
+    "plugins": []
   },
-  "include": ["server"]
+  "include": ["server/**/*.ts"],
+  "exclude": ["node_modules", "build", "server/**/*.test.ts"]
 }

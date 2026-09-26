@@ -1,262 +1,123 @@
-import { useEffect, useMemo } from 'react';
+import { use, useCallback, useEffect, useEffectEvent, useMemo } from 'react';
 
 import { toast } from 'react-toastify';
 
-import { DEFAULT_MOVE } from '@/common/constants/defaultMove';
+import { hasModKey, isTypingTarget } from '@/common/lib/keyboard';
+import { canvasToDataUri } from '@/common/lib/optimizeImage';
 import { socket } from '@/common/lib/socket';
-import { useOptionsValue } from '@/common/recoil/options';
-import { Move } from '@/common/types/global';
+import { useOptionsValue, useSetSelection } from '@/common/state/options';
 
+import { useBoardPosition } from './useBoardPosition';
+import { roomContext, TOAST_OPTIONS } from '../../../context/Room.context';
 import { useMoveImage } from '../../../hooks/useMoveImage';
 import { useRefs } from '../../../hooks/useRefs';
-import { useCtx } from './useCtx';
+import {
+  createEraseMove,
+  insetRect,
+  normalizeRect,
+  SELECTION_PADDING,
+} from '../helpers/Canvas.helpers';
 
-let tempSelection = {
-  x: 0,
-  y: 0,
-  width: 0,
-  height: 0,
-};
-
-export const useSelection = (drawAllMoves: () => Promise<void>) => {
-  const ctx = useCtx();
-  const options = useOptionsValue();
-  const { selection } = options;
-  const { bgRef, selectionRefs } = useRefs();
+export const useSelection = () => {
+  const { selection } = useOptionsValue();
+  const { clearSelection } = useSetSelection();
+  const { bgRef, canvasRef, actionsRef } = useRefs();
+  const { emitMove } = use(roomContext);
   const { setMoveImage } = useMoveImage();
+  const boardPos = useBoardPosition();
 
-  useEffect(() => {
-    const callback = async () => {
-      await drawAllMoves();
+  // The selected content, without the padding around it.
+  const area = useMemo(
+    () => (selection ? insetRect(normalizeRect(selection), SELECTION_PADDING) : null),
+    [selection],
+  );
 
-      if (ctx && selection) {
-        setTimeout(() => {
-          const { x, y, width, height } = selection;
+  // Copies the selected area to a new canvas.
+  const copyArea = useCallback(
+    (withBg: boolean) => {
+      if (!area || !area.width || !area.height || !canvasRef.current) return null;
 
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = '#000';
-          ctx.setLineDash([5, 10]);
-          ctx.globalCompositeOperation = 'source-over';
-
-          ctx.beginPath();
-          ctx.rect(x, y, width, height);
-          ctx.stroke();
-          ctx.closePath();
-
-          ctx.setLineDash([]);
-        }, 10);
-      }
-    };
-
-    if (
-      tempSelection.width !== selection?.width ||
-      tempSelection.height !== selection?.height ||
-      tempSelection.x !== selection?.x ||
-      tempSelection.y !== selection?.y
-    )
-      callback();
-
-    return () => {
-      if (selection) tempSelection = selection;
-    };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, ctx]);
-
-  const dimension = useMemo(() => {
-    if (selection) {
-      let { x, y, width, height } = selection;
-
-      if (width < 0) {
-        width += 4;
-        x -= 2;
-      } else {
-        width -= 4;
-        x += 2;
-      }
-      if (height < 0) {
-        height += 4;
-        y -= 2;
-      } else {
-        height -= 4;
-        y += 2;
-      }
-
-      return { x, y, width, height };
-    }
-
-    return {
-      width: 0,
-      height: 0,
-      x: 0,
-      y: 0,
-    };
-  }, [selection]);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const makeBlob = async (withBg?: boolean) => {
-    if (!selection) return null;
-
-    const { x, y, width, height } = dimension;
-
-    const imageData = ctx?.getImageData(x, y, width, height);
-
-    if (imageData) {
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = width;
-      tempCanvas.height = height;
+      const { x, y, width, height } = area;
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
       const tempCtx = canvas.getContext('2d');
+      if (!tempCtx) return null;
 
-      if (tempCtx && bgRef.current) {
-        const bgImage = bgRef.current
-          .getContext('2d')
-          ?.getImageData(x, y, width, height);
+      if (withBg && bgRef.current)
+        tempCtx.drawImage(bgRef.current, x, y, width, height, 0, 0, width, height);
+      tempCtx.drawImage(canvasRef.current, x, y, width, height, 0, 0, width, height);
+      return canvas;
+    },
+    [area, bgRef, canvasRef],
+  );
 
-        if (bgImage && withBg) tempCtx.putImageData(bgImage, 0, 0);
+  // Erases the selected area for all users.
+  const handleDelete = useCallback(() => {
+    if (area && socket.connected) emitMove(createEraseMove(area));
+  }, [area, emitMove]);
 
-        const sTempCtx = tempCanvas.getContext('2d');
-        sTempCtx?.putImageData(imageData, 0, 0);
+  const handleCopy = useCallback(async () => {
+    const canvas = copyArea(true);
+    const blob = canvas && (await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve)));
+    if (!blob) return;
 
-        tempCtx.drawImage(tempCanvas, 0, 0);
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      toast('Copied to clipboard!', TOAST_OPTIONS);
+    } catch {
+      toast.error('The browser did not allow access to the clipboard.', TOAST_OPTIONS);
+    }
+  }, [copyArea]);
 
-        const blob: Blob = await new Promise((resolve) => {
-          canvas.toBlob((blobGenerated) => {
-            if (blobGenerated) resolve(blobGenerated);
-          });
-        });
+  // Shows the selected content as an image that the user can drag. The
+  // original content stays until the user places the image, so a cancel or
+  // an error loses nothing.
+  const handleMove = useCallback(() => {
+    if (!area || !socket.connected) return;
 
-        return blob;
-      }
+    const canvas = copyArea(false);
+    if (!canvas) return;
+
+    let base64: string;
+    try {
+      base64 = canvasToDataUri(canvas);
+    } catch {
+      toast.error('The selection is too large to move.', TOAST_OPTIONS);
+      return;
     }
 
-    return null;
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const createDeleteMove = () => {
-    if (!selection) return null;
-
-    let { x, y, width, height } = dimension;
-
-    if (width < 0) {
-      width += 4;
-      x -= 2;
-    } else {
-      width -= 4;
-      x += 2;
-    }
-    if (height < 0) {
-      height += 4;
-      y -= 2;
-    } else {
-      height -= 4;
-      y += 2;
-    }
-
-    const move: Move = {
-      ...DEFAULT_MOVE,
-      rect: {
-        width,
-        height,
-      },
-      path: [[x, y]],
-      options: {
-        ...options,
-        shape: 'rect',
-        mode: 'eraser',
-        fillColor: { r: 0, g: 0, b: 0, a: 1 },
-      },
-    };
-
-    socket.emit('draw', move);
-
-    return move;
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleCopy = async () => {
-    const blob = await makeBlob(true);
-
-    if (blob)
-      navigator.clipboard
-        .write([
-          new ClipboardItem({
-            'image/png': blob,
-          }),
-        ])
-        .then(() => {
-          toast('Copied to clipboard!', {
-            position: 'top-center',
-            theme: 'colored',
-          });
-        });
-  };
+    clearSelection();
+    // MoveImage uses screen positions, and the area uses board positions.
+    setMoveImage({
+      base64,
+      x: area.x + boardPos.x.get(),
+      y: area.y + boardPos.y.get(),
+      eraseArea: area,
+    });
+  }, [area, boardPos.x, boardPos.y, clearSelection, copyArea, setMoveImage]);
 
   useEffect(() => {
-    const handleSelection = async (e: KeyboardEvent) => {
-      if (e.key === 'c' && e.ctrlKey) handleCopy();
-      if (e.key === 'Delete' && selection) createDeleteMove();
-    };
+    Object.assign(actionsRef.current, {
+      moveSelection: handleMove,
+      copySelection: handleCopy,
+      deleteSelection: handleDelete,
+    });
+  }, [actionsRef, handleCopy, handleDelete, handleMove]);
 
-    document.addEventListener('keydown', handleSelection);
+  const handleKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (!area || isTypingTarget(e.target)) return;
 
-    return () => {
-      document.removeEventListener('keydown', handleSelection);
-    };
-  }, [bgRef, createDeleteMove, ctx, handleCopy, makeBlob, options, selection]);
+    if (hasModKey(e) && e.key.toLowerCase() === 'c') handleCopy();
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      handleDelete();
+    }
+  });
 
   useEffect(() => {
-    const handleSelectionMove = async () => {
-      if (selection) {
-        const blob = await makeBlob();
-        if (!blob) return;
-
-        const { x, y, width, height } = dimension;
-
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.addEventListener('loadend', () => {
-          const base64 = reader.result?.toString();
-
-          if (base64) {
-            createDeleteMove();
-            setMoveImage({
-              base64,
-              x: Math.min(x, x + width),
-              y: Math.min(y, y + height),
-            });
-          }
-        });
-      }
-    };
-
-    if (selectionRefs.current) {
-      const moveBtn = selectionRefs.current[0];
-      const copyBtn = selectionRefs.current[1];
-      const deleteBtn = selectionRefs.current[2];
-
-      moveBtn.addEventListener('click', handleSelectionMove);
-      copyBtn.addEventListener('click', handleCopy);
-      deleteBtn.addEventListener('click', createDeleteMove);
-
-      return () => {
-        moveBtn?.removeEventListener('click', handleSelectionMove);
-        copyBtn?.removeEventListener('click', handleCopy);
-        deleteBtn?.removeEventListener('click', createDeleteMove);
-      };
-    }
-
-    return () => {};
-  }, [
-    createDeleteMove,
-    dimension,
-    handleCopy,
-    makeBlob,
-    selection,
-    selectionRefs,
-    setMoveImage,
-  ]);
+    const listener = (e: KeyboardEvent) => handleKeyDown(e);
+    document.addEventListener('keydown', listener);
+    return () => document.removeEventListener('keydown', listener);
+  }, []);
 };

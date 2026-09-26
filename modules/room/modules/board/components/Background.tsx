@@ -1,38 +1,48 @@
-import { RefObject, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, type RefObject } from 'react';
+
+import { motion } from 'motion/react';
+
 import { CANVAS_SIZE } from '@/common/constants/canvasSize';
-import { useBackground } from '@/common/recoil/background';
+import { useBackground } from '@/common/state/background';
+
 import { useBoardPosition } from '../hooks/useBoardPosition';
 
-const Background = ({ bgRef }: { bgRef: RefObject<HTMLCanvasElement> }) => {
+export const BG_COLORS = {
+  dark: { fill: '#2b1f36', dots: '#443a4e' },
+  light: { fill: '#f8f0ff', dots: '#e6d9f2' },
+} as const;
+
+export const drawBackground = (
+  ctx: CanvasRenderingContext2D,
+  mode: 'dark' | 'light',
+  lines: boolean,
+  spacing: number,
+) => {
+  const { width, height } = ctx.canvas;
+  ctx.fillStyle = BG_COLORS[mode].fill;
+  ctx.fillRect(0, 0, width, height);
+
+  if (!lines) return;
+
+  ctx.fillStyle = BG_COLORS[mode].dots;
+  for (let x = 0; x < width; x += spacing) {
+    for (let y = 0; y < height; y += spacing) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+};
+
+const Background = ({ bgRef }: { bgRef: RefObject<HTMLCanvasElement | null> }) => {
   const bg = useBackground();
   const { x, y } = useBoardPosition();
 
   useEffect(() => {
     const ctx = bgRef.current?.getContext('2d');
+    if (ctx) drawBackground(ctx, bg.mode, bg.lines, 25);
 
-    if (ctx) {
-      // Add purple hue to background
-      ctx.fillStyle = bg.mode === 'dark' ? '#2b1f36' : '#f8f0ff';
-      ctx.fillRect(0, 0, CANVAS_SIZE.width, CANVAS_SIZE.height);
-
-      document.body.style.backgroundColor =
-        bg.mode === 'dark' ? '#2b1f36' : '#f8f0ff';
-
-      if (bg.lines) {
-        ctx.fillStyle = bg.mode === 'dark' ? '#443a4e' : '#e6d9f2';
-        const dotSize = 2;
-        const spacing = 25;
-
-        for (let x = 0; x < CANVAS_SIZE.width; x += spacing) {
-          for (let y = 0; y < CANVAS_SIZE.height; y += spacing) {
-            ctx.beginPath();
-            ctx.arc(x, y, dotSize / 2, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-    }
+    document.body.style.backgroundColor = BG_COLORS[bg.mode].fill;
   }, [bgRef, bg]);
 
   return (

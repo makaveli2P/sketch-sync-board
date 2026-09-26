@@ -1,229 +1,267 @@
-import { useEffect, useMemo } from 'react';
+import {
+  use,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  type RefObject,
+} from 'react';
 
-import { getStringFromRgba } from '@/common/lib/rgba';
+import { toast } from 'react-toastify';
+
+import { hasModKey, isTypingTarget } from '@/common/lib/keyboard';
 import { socket } from '@/common/lib/socket';
-import { useBackground } from '@/common/recoil/background';
-import { useSetSelection } from '@/common/recoil/options';
-import { useMyMoves, useRoom } from '@/common/recoil/room';
-import { useSetSavedMoves } from '@/common/recoil/savedMoves';
-import { Move } from '@/common/types/global';
+import { useBackground } from '@/common/state/background';
+import { useOptionsValue, useSetSelection } from '@/common/state/options';
+import { useMyMoves, useRoom } from '@/common/state/room';
+import { sortMoves } from '@/common/state/room/room.reducers';
+import { useSetSavedMoves } from '@/common/state/savedMoves';
+import type { Move, Rect } from '@/common/types/global';
 
-import { useCtx } from '../modules/board/hooks/useCtx';
 import { useRefs } from './useRefs';
-import { useSelection } from '../modules/board/hooks/useSelection';
+import { roomContext, TOAST_OPTIONS } from '../context/Room.context';
+import {
+  copyToMinimap,
+  drawMove,
+  drawSelectionOutline,
+} from '../modules/board/helpers/Canvas.helpers';
+import { useCtx } from '../modules/board/hooks/useCtx';
 
-let prevMovesLength = 0;
+type ImageMap = Map<string, HTMLImageElement | null>;
 
-export const useMovesHandlers = (clearOnYourMove: () => void) => {
+interface Scheduled {
+  ctx: CanvasRenderingContext2D | null;
+  moves: Move[];
+  selection: Rect | null;
+}
+
+// True when `prefix` is the start of `moves`.
+const startsWith = (moves: Move[], prefix: Move[]) =>
+  prefix.length <= moves.length && prefix.every((move, index) => moves[index].id === move.id);
+
+// Draws each move alone, so that one bad move does not stop the others.
+const drawMoves = (ctx: CanvasRenderingContext2D, moves: Move[], images: ImageMap) => {
+  moves.forEach((move) => {
+    try {
+      drawMove(ctx, move, images.get(move.id));
+    } catch (err) {
+      console.error('Could not draw a move:', err);
+    }
+  });
+};
+
+export const useMovesHandlers = (drawing: boolean, drawingRef: RefObject<boolean>) => {
   const { canvasRef, minimapRef, bgRef } = useRefs();
+  const { pendingRef, emitMove } = use(roomContext);
   const room = useRoom();
   const { handleAddMyMove, handleRemoveMyMove } = useMyMoves();
   const { addSavedMove, removeSavedMove } = useSetSavedMoves();
   const ctx = useCtx();
   const bg = useBackground();
+  const { selection } = useOptionsValue();
   const { clearSelection } = useSetSelection();
 
-  const sortedMoves = useMemo(() => {
-    const { usersMoves, movesWithoutUser, myMoves } = room;
+  const sortedMoves = useMemo(() => sortMoves(room), [room]);
 
-    const moves = [...movesWithoutUser, ...myMoves];
+  // Loaded images by move id. A failed image resolves to null.
+  const imageCache = useRef(new Map<string, Promise<HTMLImageElement | null>>());
+  // Drawing jobs run one after another, so two redraws never mix.
+  const drawQueue = useRef<Promise<void>>(Promise.resolve());
+  // The state of the last scheduled drawing job.
+  const scheduled = useRef<Scheduled>({ ctx: null, moves: [], selection: null });
+  const fullRedrawNeeded = useRef(false);
 
-    usersMoves.forEach((userMoves) => moves.push(...userMoves));
+  const copyCanvasToSmall = useCallback(
+    () => copyToMinimap(minimapRef.current, bgRef.current, canvasRef.current),
+    [bgRef, canvasRef, minimapRef],
+  );
 
-    moves.sort((a, b) => a.timestamp - b.timestamp);
-
-    return moves;
-  }, [room]);
-
-  const copyCanvasToSmall = () => {
-    if (canvasRef.current && minimapRef.current && bgRef.current) {
-      const smallCtx = minimapRef.current.getContext('2d');
-      if (smallCtx) {
-        smallCtx.clearRect(0, 0, smallCtx.canvas.width, smallCtx.canvas.height);
-        smallCtx.drawImage(
-          bgRef.current,
-          0,
-          0,
-          smallCtx.canvas.width,
-          smallCtx.canvas.height
-        );
-        smallCtx.drawImage(
-          canvasRef.current,
-          0,
-          0,
-          smallCtx.canvas.width,
-          smallCtx.canvas.height
-        );
-      }
-    }
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => copyCanvasToSmall(), [bg]);
-
-  const drawMove = (move: Move, image?: HTMLImageElement) => {
-    const { path } = move;
-
-    if (!ctx || !path.length) return;
-
-    const moveOptions = move.options;
-
-    if (moveOptions.mode === 'select') return;
-
-    ctx.lineWidth = moveOptions.lineWidth;
-    ctx.strokeStyle = getStringFromRgba(moveOptions.lineColor);
-    ctx.fillStyle = getStringFromRgba(moveOptions.fillColor);
-    if (moveOptions.mode === 'eraser')
-      ctx.globalCompositeOperation = 'destination-out';
-    else ctx.globalCompositeOperation = 'source-over';
-
-    if (moveOptions.shape === 'image' && image)
-      ctx.drawImage(image, path[0][0], path[0][1]);
-
-    switch (moveOptions.shape) {
-      case 'line': {
-        ctx.beginPath();
-        path.forEach(([x, y]) => {
-          ctx.lineTo(x, y);
-        });
-
-        ctx.stroke();
-        ctx.closePath();
-        break;
-      }
-
-      case 'circle': {
-        const { cX, cY, radiusX, radiusY } = move.circle;
-
-        ctx.beginPath();
-        ctx.ellipse(cX, cY, radiusX, radiusY, 0, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.fill();
-        ctx.closePath();
-        break;
-      }
-
-      case 'rect': {
-        const { width, height } = move.rect;
-
-        ctx.beginPath();
-
-        ctx.rect(path[0][0], path[0][1], width, height);
-        ctx.stroke();
-        ctx.fill();
-
-        ctx.closePath();
-        break;
-      }
-
-      default:
-        break;
-    }
-
+  useEffect(() => {
     copyCanvasToSmall();
-  };
+  }, [bg, copyCanvasToSmall]);
 
-  const drawAllMoves = async () => {
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-
-    const images = await Promise.all(
-      sortedMoves
+  const loadImages = useCallback(async (moves: Move[]): Promise<ImageMap> => {
+    const entries = await Promise.all(
+      moves
         .filter((move) => move.options.shape === 'image')
-        .map((move) => {
-          return new Promise<HTMLImageElement>((resolve) => {
-            const img = new Image();
-            img.src = move.img.base64;
-            img.id = move.id;
-            img.addEventListener('load', () => resolve(img));
-          });
-        })
+        .map(async (move) => {
+          let promise = imageCache.current.get(move.id);
+          if (!promise) {
+            promise = new Promise((resolve) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = () => resolve(null);
+              img.src = move.img.base64;
+            });
+            imageCache.current.set(move.id, promise);
+          }
+          return [move.id, await promise] as const;
+        }),
     );
+    return new Map(entries);
+  }, []);
 
-    sortedMoves.forEach((move) => {
-      if (move.options.shape === 'image') {
-        const img = images.find((image) => image.id === move.id);
-        if (img) drawMove(move, img);
-      } else drawMove(move);
-    });
+  // Adds a drawing job. The job loads the images first, so that the canvas
+  // is never blank while images load. If the user starts a stroke while the
+  // images load, the job does not draw: a change to the canvas would damage
+  // the stroke preview. The board draws everything again after the stroke.
+  const enqueue = useCallback(
+    (moves: Move[], draw: (context: CanvasRenderingContext2D, images: ImageMap) => void) => {
+      drawQueue.current = drawQueue.current.then(async () => {
+        if (!ctx) return;
+        const images = await loadImages(moves);
+        if (drawingRef.current) {
+          fullRedrawNeeded.current = true;
+          return;
+        }
+        try {
+          draw(ctx, images);
+        } catch (err) {
+          console.error('Could not draw the board:', err);
+        }
+      });
+    },
+    [ctx, drawingRef, loadImages],
+  );
 
-    copyCanvasToSmall();
-  };
+  const redrawAll = useCallback(
+    (moves: Move[], currentSelection: Rect | null) => {
+      // Forget the images of moves that are not on the board any more.
+      const ids = new Set(moves.map((move) => move.id));
+      imageCache.current.forEach((_image, id) => {
+        if (!ids.has(id)) imageCache.current.delete(id);
+      });
 
-  useSelection(drawAllMoves);
+      enqueue(moves, (context, images) => {
+        context.clearRect(0, 0, context.canvas.width, context.canvas.height);
+        drawMoves(context, moves, images);
+        copyCanvasToSmall();
+        // Draw the outline after the minimap copy, so the minimap does not show it.
+        if (currentSelection) drawSelectionOutline(context, currentSelection);
+      });
+    },
+    [copyCanvasToSmall, enqueue],
+  );
 
+  const drawNewMoves = useCallback(
+    (moves: Move[]) =>
+      enqueue(moves, (context, images) => {
+        drawMoves(context, moves, images);
+        copyCanvasToSmall();
+      }),
+    [copyCanvasToSmall, enqueue],
+  );
+
+  // Draw only the new moves when moves were added at the end. Draw all moves
+  // again for every other change (undo, a user who left, a new selection).
+  // Draw nothing while the user draws a stroke.
   useEffect(() => {
-    socket.on('your_move', (move) => {
-      clearOnYourMove();
+    if (!ctx || drawing) return;
+
+    const prev = scheduled.current;
+    const sameBase =
+      !fullRedrawNeeded.current &&
+      prev.ctx === ctx &&
+      prev.selection === selection &&
+      startsWith(sortedMoves, prev.moves);
+
+    // For example, a user joined or left. The moves did not change.
+    if (sameBase && sortedMoves.length === prev.moves.length) return;
+
+    scheduled.current = { ctx, moves: sortedMoves, selection };
+    fullRedrawNeeded.current = false;
+
+    // New moves drawn over a selection outline would damage the outline.
+    if (sameBase && !selection) drawNewMoves(sortedMoves.slice(prev.moves.length));
+    else redrawAll(sortedMoves, selection);
+  }, [ctx, drawing, drawNewMoves, redrawAll, selection, sortedMoves]);
+
+  // Draws the last scheduled state again, for example to remove a stroke
+  // preview after the server rejected the stroke.
+  const redraw = useCallback(
+    () => redrawAll(scheduled.current.moves, scheduled.current.selection),
+    [redrawAll],
+  );
+
+  const undoNow = useCallback(() => {
+    const move = handleRemoveMyMove();
+
+    if (move?.options.mode === 'select') clearSelection();
+    else if (move) {
+      addSavedMove(move);
+      socket.emit('undo');
+    }
+  }, [addSavedMove, clearSelection, handleRemoveMyMove]);
+
+  // The server confirmed or rejected one own move. When no own move is
+  // pending, run the undos that waited.
+  const settleMove = useCallback(() => {
+    const pending = pendingRef.current;
+    pending.moves = Math.max(0, pending.moves - 1);
+    if (pending.moves) return;
+
+    while (pending.undos > 0) {
+      pending.undos -= 1;
+      undoNow();
+    }
+  }, [pendingRef, undoNow]);
+
+  const handleYourMove = useCallback(
+    (move: Move) => {
+      // The stroke preview is still on the canvas, so draw everything again.
+      fullRedrawNeeded.current = true;
       handleAddMyMove(move);
-      setTimeout(clearSelection, 100);
-    });
+      clearSelection();
+      settleMove();
+    },
+    [clearSelection, handleAddMyMove, settleMove],
+  );
 
-    return () => {
-      socket.off('your_move');
-    };
-  }, [clearOnYourMove, clearSelection, handleAddMyMove]);
+  const handleMoveRejected = useCallback(
+    (reason: string) => {
+      // Remove the preview of the stroke that the server did not accept.
+      redraw();
+      settleMove();
+      toast.error(reason, { ...TOAST_OPTIONS, toastId: reason });
+    },
+    [redraw, settleMove],
+  );
+
+  const handleUndo = useCallback(() => {
+    if (!socket.connected) return;
+
+    // The server undoes its last received move. If an own move is still on
+    // its way, the undo waits for it.
+    if (pendingRef.current.moves) pendingRef.current.undos += 1;
+    else undoNow();
+  }, [pendingRef, undoNow]);
+
+  const handleRedo = useCallback(() => {
+    if (!socket.connected) return;
+
+    const move = removeSavedMove();
+    if (move) emitMove(move);
+  }, [emitMove, removeSavedMove]);
+
+  const handleKeyDown = useEffectEvent((e: KeyboardEvent) => {
+    if (isTypingTarget(e.target) || !hasModKey(e)) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      handleUndo();
+    } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+      e.preventDefault();
+      handleRedo();
+    }
+  });
 
   useEffect(() => {
-    if (prevMovesLength >= sortedMoves.length || !prevMovesLength) {
-      drawAllMoves();
-    } else {
-      const lastMove = sortedMoves[sortedMoves.length - 1];
+    const listener = (e: KeyboardEvent) => handleKeyDown(e);
+    document.addEventListener('keydown', listener);
+    return () => document.removeEventListener('keydown', listener);
+  }, []);
 
-      if (lastMove.options.shape === 'image') {
-        const img = new Image();
-        img.src = lastMove.img.base64;
-        img.addEventListener('load', () => drawMove(lastMove, img));
-      } else drawMove(lastMove);
-    }
-
-    return () => {
-      prevMovesLength = sortedMoves.length;
-    };
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedMoves]);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleUndo = () => {
-    if (ctx) {
-      const move = handleRemoveMyMove();
-
-      if (move?.options.mode === 'select') clearSelection();
-      else if (move) {
-        addSavedMove(move);
-        socket.emit('undo');
-      }
-    }
-  };
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleRedo = () => {
-    if (ctx) {
-      const move = removeSavedMove();
-
-      if (move) {
-        socket.emit('draw', move);
-      }
-    }
-  };
-
-  useEffect(() => {
-    const handleUndoRedoKeyboard = (e: KeyboardEvent) => {
-      if (e.key === 'z' && e.ctrlKey) {
-        handleUndo();
-      } else if (e.key === 'y' && e.ctrlKey) {
-        handleRedo();
-      }
-    };
-
-    document.addEventListener('keydown', handleUndoRedoKeyboard);
-
-    return () => {
-      document.removeEventListener('keydown', handleUndoRedoKeyboard);
-    };
-  }, [handleUndo, handleRedo]);
-
-  return { handleUndo, handleRedo };
+  return { handleUndo, handleRedo, handleYourMove, handleMoveRejected };
 };

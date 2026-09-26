@@ -1,32 +1,32 @@
-// Socket.IO server without Next.js, for hosts where the frontend is deployed
-// separately (e.g. Next.js on Vercel, this server on Render).
-import { createServer } from 'http';
+// The Socket.IO server without Next.js. Render runs this file, and Vercel
+// hosts the Next.js frontend.
+import { createServer } from 'node:http';
 
-import express from 'express';
-
+import { parseOrigins } from './origins';
 import { attachSocket } from './socket';
 
 const port = parseInt(process.env.PORT || '4000', 10);
-// Comma-separated list of frontend origins allowed to connect.
-const corsOrigins = (process.env.CLIENT_ORIGIN || '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+const corsOrigins = parseOrigins(process.env.CLIENT_ORIGIN);
 
-const app = express();
-const server = createServer(app);
+if (!corsOrigins.length) {
+  console.error(
+    'CLIENT_ORIGIN is not set. Set it to the frontend URL, for example https://sketch-sync-board.vercel.app',
+  );
+  process.exit(1);
+}
 
-attachSocket(server, corsOrigins);
-
-app.get('/hello', async (_, res) => {
-  res.send('Hello World');
+const server = createServer((req, res) => {
+  if (req.url === '/hello') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Hello World');
+    return;
+  }
+  res.writeHead(404);
+  res.end();
 });
 
+attachSocket(server, { corsOrigins });
+
 server.listen(port, () => {
-  // eslint-disable-next-line no-console
-  console.log(
-    `> Socket server ready on port ${port}, allowed origins: ${
-      corsOrigins.join(', ') || '(none)'
-    }`
-  );
+  console.log(`> Socket server ready on port ${port}, allowed origins: ${corsOrigins.join(', ')}`);
 });
