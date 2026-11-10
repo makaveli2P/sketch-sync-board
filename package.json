@@ -21,7 +21,7 @@
   "dependencies": {
     "jotai": "^3.0.0",
     "motion": "^13.4.4",
-    "next": "^16.3.6",
+    "next": "^16.4.6",
     "react": "^19.3.0",
     "react-colorful": "^5.8.1",
     "react-dom": "^19.3.0",
@@ -38,7 +38,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.3.6",
+    "eslint-config-next": "^16.4.6",
     "eslint-config-prettier": "^10.1.8",
     "postcss": "^8.5.28",
     "prettier": "^3.9.9",
@@ -46,6 +46,6 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.1.0"
   }
 }
